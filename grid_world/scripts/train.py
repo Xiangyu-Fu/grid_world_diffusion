@@ -24,6 +24,7 @@ import os
 
 # grid_world
 from grid_world.common.grid_world_data_loader import PathDataset
+from grid_world.common.diffusion_policy import DiffusionPolicy
 
 
 def train_grid_world():
@@ -66,6 +67,37 @@ def train_grid_world():
 
     print(f"States shape: {states.shape}")
     print(f"Actions shape: {actions.shape}")
+
+    # 创建模型
+    policy = DiffusionPolicy()
+    policy.to(device)
+    policy.train()
+
+    # 训练参数
+    training_steps = 5000
+    device = torch.device("cuda")
+    log_freq = 250
+
+    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
+
+    # Run training loop.
+    step = 0
+    done = False
+    while not done:
+        for batch in dataloader:
+            batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}  # batch.items() 返回键值对
+            output_dict = policy.forward(batch)
+            loss = output_dict["loss"]
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+            if step % log_freq == 0:
+                print(f"step: {step} loss: {loss.item():.3f}")
+            step += 1
+            if step >= training_steps:
+                done = True
+                break
 
 
 if __name__ == "__main__":

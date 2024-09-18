@@ -1,5 +1,5 @@
 # Hydra app
-import hydra
+# import hydra
 from omegaconf import DictConfig, OmegaConf
 
 # Torch
@@ -19,8 +19,9 @@ from pathlib import Path
 from collections import deque
 
 from grid_world.conf.configuration_diffusion import DiffusionConfig
+from grid_world.utils.utils import _make_noise_scheduler, _replace_submodules
 
-class MyDiffusionPolicy(
+class DiffusionPolicy(
     nn.Module,
 ):
     def __init__(
@@ -33,20 +34,20 @@ class MyDiffusionPolicy(
             config = DiffusionConfig()  # Here we use the default config
         self.config = config
 
-        # TODO: replace with my own implementation
-        self.normalize_inputs = Normalize(
-            config.input_shapes, config.input_normalization_modes, dataset_stats
-        )
-        self.normalize_targets = Normalize(
-            config.output_shapes, config.output_normalization_modes, dataset_stats
-        )
-        self.unnormalize_outputs = Unnormalize(
-            config.output_shapes, config.output_normalization_modes, dataset_stats
-        )
+        # # TODO: replace with my own implementation
+        # self.normalize_inputs = Normalize(
+        #     config.input_shapes, config.input_normalization_modes, dataset_stats
+        # )
+        # self.normalize_targets = Normalize(
+        #     config.output_shapes, config.output_normalization_modes, dataset_stats
+        # )
+        # self.unnormalize_outputs = Unnormalize(
+        #     config.output_shapes, config.output_normalization_modes, dataset_stats
+        # )
 
         self._queues = None
 
-        self.diffusion = MyDiffusionModel(config)
+        self.diffusion = DiffusionModel(config)
 
         self.expected_image_keys = [k for k in config.input_shapes if k.startswith("observation.image")]
 
@@ -66,7 +67,7 @@ class MyDiffusionPolicy(
     def forward(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
         # Do something with the input batch
         # input shape: (36864, 96) = (64*2*3*96, 96)
-        batch = self.normalize_inputs(batch)
+        # batch = self.normalize_inputs(batch)
         if len(self.expected_image_keys) > 0:
             batch = dict(batch)  # Copy the batch to avoid modifying the original
             batch["observation.images"] = torch.stack([batch[k] for k in self.expected_image_keys], dim=-4)
@@ -76,7 +77,7 @@ class MyDiffusionPolicy(
         return {"loss": loss}
 
 
-class MyDiffusionModel(nn.Module):
+class DiffusionModel(nn.Module):
     def __init__(self, config: DiffusionConfig):
         super().__init__()
         self.config = config
