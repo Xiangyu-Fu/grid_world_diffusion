@@ -59,8 +59,10 @@ class PathDataset(Dataset):
         data['action'] = np.stack(actions)  # (num_actions, 2)
         
         # 将数据转换为张量
+        data['observation.image'] = torch.tensor(data['observation.state'], dtype=torch.float32)  # TODO: remove this line to change model backbone
         data['observation.state'] = torch.tensor(data['observation.state'], dtype=torch.float32)
         data['action'] = torch.tensor(data['action'], dtype=torch.float32)
+        
         
         return data
 

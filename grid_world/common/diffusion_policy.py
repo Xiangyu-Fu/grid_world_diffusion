@@ -27,7 +27,7 @@ class DiffusionPolicy(
     def __init__(
             self, 
             config: DiffusionConfig | None = None, 
-            dataset_stats: dict[str, dict[str, Tensor]] | None = None,  # 数据集统计信息
+            dataset_stats: dict[str, dict[str, Tensor]] | None = None,  
             ):
         super().__init__()
         if config is None:
@@ -71,7 +71,8 @@ class DiffusionPolicy(
         if len(self.expected_image_keys) > 0:
             batch = dict(batch)  # Copy the batch to avoid modifying the original
             batch["observation.images"] = torch.stack([batch[k] for k in self.expected_image_keys], dim=-4)
-        batch = self.normalize_targets(batch) 
+        # batch = self.normalize_targets(batch) 
+
         loss = self.diffusion.compute_loss(batch)  # TODO
         # Return the output dictionary
         return {"loss": loss}
@@ -155,8 +156,8 @@ class DiffusionModel(nn.Module):
         }
         """
         # 1. input validation
-        assert set(batch).issuperset({"observation.state", "action", "action_is_pad"})
-        assert "observation.images" in batch or "observation.environment_state" in batch
+        # assert set(batch).issuperset({"observation.state", "action", "action_is_pad"})
+        # assert "observation.images" in batch or "observation.environment_state" in batch
         n_obs_steps = batch["observation.state"].shape[1] # ？
         horizon = batch["action"].shape[1] 
         assert n_obs_steps == self.config.n_obs_steps

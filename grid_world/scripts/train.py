@@ -62,9 +62,11 @@ def train_grid_world():
     print("Example batch keys:", example_batch.keys())
 
     # 提取状态和动作
+    observations = example_batch["observation.image"]      # (batch_size, num_states, 2)
     states = example_batch["observation.state"]  # (batch_size, num_states, 2)
     actions = example_batch["action"]            # (batch_size, num_actions, 2)
 
+    print(f"Observations shape: {observations.shape}")
     print(f"States shape: {states.shape}")
     print(f"Actions shape: {actions.shape}")
 
