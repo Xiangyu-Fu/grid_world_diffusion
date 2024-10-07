@@ -49,9 +49,9 @@ def train_grid_world():
         dataset,
         num_workers=0,
         batch_size=64,
-        shuffle=True,
+        shuffle=True, 
         pin_memory=device != torch.device("cpu"),
-        drop_last=True,
+        drop_last=True, # Drop last batch if it's smaller than batch_size
     )
 
     # 显示数据集大小

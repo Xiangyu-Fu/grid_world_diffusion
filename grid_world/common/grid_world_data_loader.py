@@ -5,18 +5,17 @@ import numpy as np
 
 class PathDataset(Dataset):
     def __init__(self, data_path, delta_timestamps):
-        # 加载数据
         with open(data_path, 'rb') as f:
             self.paths = pickle.load(f)
         
         self.delta_timestamps = delta_timestamps
         
-        # 预处理：为每个路径生成可用的样本索引
         self.samples = []
+        #TODO: add new functions which includes the obstacle information
         for path_index, path in enumerate(self.paths):
             timestamps = path[:, 0]
             max_time = timestamps[-1]
-            # 计算可用的起始时间点，确保后续的 delta_timestamps 不会超出路径长度
+
             max_start_time = max_time - max(self.delta_timestamps["action"])
             num_samples = int((max_start_time - timestamps[0]) / 0.1) + 1
             for i in range(num_samples):
@@ -27,14 +26,23 @@ class PathDataset(Dataset):
         return len(self.samples)
     
     def __getitem__(self, idx):
+        '''
+        Retrurns:
+            observation.env: [start_position[x, y], goal_position[x, y], obstacle_position[x, y]xN ]
+            observation.state: [x, y]
+            action: [[x, y]xlen(delta_timestamps)]
+
+        '''
         path_index, start_time = self.samples[idx]
         path = self.paths[path_index]
         timestamps = path[:, 0]
         
-        # 构建数据字典
         data = {}
-        
-        # 获取 observation.state
+
+        # TODO: data['observation.env']
+        data['observation.env'] = path[0, 1:]
+
+        # data['observation.state']
         state_times = np.array(self.delta_timestamps.get("observation.state", []))
         state_times += start_time
         state_indices = ((state_times - timestamps[0]) / 0.1).astype(int)
@@ -42,7 +50,7 @@ class PathDataset(Dataset):
         state_indices = state_indices[valid_indices]
         data['observation.state'] = path[state_indices, 1:]  # (num_states, 2)
         
-        # 获取 action
+        # data['action']
         action_times = np.array(self.delta_timestamps.get("action", []))
         action_times += start_time
         action_indices = ((action_times - timestamps[0]) / 0.1).astype(int)
@@ -58,7 +66,6 @@ class PathDataset(Dataset):
             actions.append(action)
         data['action'] = np.stack(actions)  # (num_actions, 2)
         
-        # 将数据转换为张量
         data['observation.image'] = torch.tensor(data['observation.state'], dtype=torch.float32)  # TODO: remove this line to change model backbone
         data['observation.state'] = torch.tensor(data['observation.state'], dtype=torch.float32)
         data['action'] = torch.tensor(data['action'], dtype=torch.float32)

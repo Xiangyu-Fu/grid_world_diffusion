@@ -11,13 +11,36 @@ world_size = 100
 # Create grid world
 grid_world = np.zeros((world_size, world_size))
 
-# Define obstacle positions
-obstacle_top_left = (40, 40)
-obstacle_bottom_right = (60, 60)
+# Generate 1 to 3 random obstacles
+num_obstacles = 3
 
-# Set obstacles
-grid_world[obstacle_top_left[0]:obstacle_bottom_right[0],
-           obstacle_top_left[1]:obstacle_bottom_right[1]] = 1
+for _ in range(num_obstacles):
+    obstacle_type = random.choice(['rectangle', 'circle'])
+    
+    if obstacle_type == 'rectangle':
+        # Randomly generate top left and bottom right corners for the rectangle
+        top_left_x = random.randint(0, world_size - 1)
+        top_left_y = random.randint(0, world_size - 1)
+        width = random.randint(5, 20)  # Random width of the rectangle
+        height = random.randint(5, 20)  # Random height of the rectangle
+        
+        bottom_right_x = min(top_left_x + width, world_size - 1)
+        bottom_right_y = min(top_left_y + height, world_size - 1)
+        
+        # Set the obstacle area to 1
+        grid_world[top_left_x:bottom_right_x, top_left_y:bottom_right_y] = 1
+    
+    elif obstacle_type == 'circle':
+        # Randomly generate center and radius for the circle
+        center_x = random.randint(0, world_size - 1)
+        center_y = random.randint(0, world_size - 1)
+        radius = random.randint(5, 10)  # Random radius of the circle
+        
+        for x in range(world_size):
+            for y in range(world_size):
+                # Use the equation of a circle to determine if a point is inside
+                if (x - center_x) ** 2 + (y - center_y) ** 2 <= radius ** 2:
+                    grid_world[x, y] = 1
 
 # Heuristic function (Manhattan distance)
 def heuristic(a, b):
