@@ -153,3 +153,12 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+
+# Ignore model files
+grid_world/models/*.pth
+
+
+git filter-branch --force --index-filter 
+  "git rm --cached --ignore-unmatch grid_world/models/diffusion_policy.pth" 
+  --prune-empty --tag-name-filter cat -- --all
