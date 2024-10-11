@@ -2,17 +2,20 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import pickle
 import numpy as np
+# import matplotlib.pyplot as plt
 
 class PathDataset(Dataset):
-    def __init__(self, data_path, delta_timestamps):
+    def __init__(self, data_path, delta_timestamps, ):
         with open(data_path, 'rb') as f:
             self.paths = pickle.load(f)
         
         self.delta_timestamps = delta_timestamps
+        self.max_state_length = len(delta_timestamps.get("observation.state", []))
+        self.max_action_length = len(delta_timestamps.get("action", []))
         
         self.samples = []
-        #TODO: add new functions which includes the obstacle information
-        for path_index, path in enumerate(self.paths):
+        for path_index, path_data in enumerate(self.paths):
+            path = np.array(path_data['path'])
             timestamps = path[:, 0]
             max_time = timestamps[-1]
 
@@ -27,20 +30,33 @@ class PathDataset(Dataset):
     
     def __getitem__(self, idx):
         '''
-        Retrurns:
-            observation.env: [start_position[x, y], goal_position[x, y], obstacle_position[x, y]xN ]
+        Returns:
+            observation.env: 2D binary map with obstacles, start, and goal
             observation.state: [x, y]
-            action: [[x, y]xlen(delta_timestamps)]
-
+            action: [[x, y]*len(delta_timestamps)]
         '''
         path_index, start_time = self.samples[idx]
-        path = self.paths[path_index]
+        path_data = self.paths[path_index]
+        path = np.array(path_data['path'])
+        obstacle_points = np.array(path_data['obstacle'])
         timestamps = path[:, 0]
         
         data = {}
 
-        # TODO: data['observation.env']
-        data['observation.env'] = path[0, 1:]
+        # data['observation.env'] - Create a 2D binary map
+        grid_size = 100  # Assuming the world size is 100x100
+        env_map = np.zeros((grid_size, grid_size), dtype=np.float32)
+        
+        for point in obstacle_points:
+            x, y = point
+            env_map[x, y] = 1.0
+        
+        start_position = path[0, 1:].astype(int)
+        goal_position = path[-1, 1:].astype(int)
+        env_map[start_position[0], start_position[1]] = 0.5  # Start position
+        env_map[goal_position[0], goal_position[1]] = 0.75  # Goal position
+        
+        data['observation.env'] = env_map  # (grid_size, grid_size)
 
         # data['observation.state']
         state_times = np.array(self.delta_timestamps.get("observation.state", []))
@@ -48,28 +64,32 @@ class PathDataset(Dataset):
         state_indices = ((state_times - timestamps[0]) / 0.1).astype(int)
         valid_indices = (state_indices >= 0) & (state_indices < len(path))
         state_indices = state_indices[valid_indices]
-        data['observation.state'] = path[state_indices, 1:]  # (num_states, 2)
+        observation_state = path[state_indices, 1:]  # (num_states, 2)
+
+        # Pad observation.state to max_state_length
+        if len(observation_state) < self.max_state_length:
+            pad_length = self.max_state_length - len(observation_state)
+            observation_state = np.pad(observation_state, ((0, pad_length), (0, 0)), mode='constant', constant_values=0)
+        else:
+            observation_state = observation_state[:self.max_state_length]
+        data['observation.state'] = observation_state
         
         # data['action']
         action_times = np.array(self.delta_timestamps.get("action", []))
         action_times += start_time
         action_indices = ((action_times - timestamps[0]) / 0.1).astype(int)
-        actions = []
-        for idx in action_indices:
-            if idx + 1 < len(path):
-                current_state = path[idx, 1:]
-                next_state = path[idx + 1, 1:]
-                action = next_state - current_state
-            else:
-                # 如果超出路径长度，用零填充
-                action = np.array([0.0, 0.0])
-            actions.append(action)
-        data['action'] = np.stack(actions)  # (num_actions, 2)
+        action = path[action_indices, 1:]  # (num_actions, 2)
+
+        # Pad action to max_action_length
+        if len(action) < self.max_action_length:
+            pad_length = self.max_action_length - len(action)
+            action = np.pad(action, ((0, pad_length), (0, 0)), mode='constant', constant_values=0)
+        else:
+            action = action[:self.max_action_length]
+        data['action'] = action
         
-        data['observation.image'] = torch.tensor(data['observation.state'], dtype=torch.float32)  # TODO: remove this line to change model backbone
+        data['observation.env'] = torch.tensor(data['observation.env'], dtype=torch.float32).unsqueeze(0)  # Add channel dimension
         data['observation.state'] = torch.tensor(data['observation.state'], dtype=torch.float32)
         data['action'] = torch.tensor(data['action'], dtype=torch.float32)
         
-        
         return data
-

@@ -49,7 +49,7 @@ class DiffusionPolicy(
 
         self.diffusion = DiffusionModel(config)
 
-        self.expected_image_keys = [k for k in config.input_shapes if k.startswith("observation.image")]
+        self.expected_image_keys = [k for k in config.input_shapes if k.startswith("observation.env")]
 
         self.reset()
 
@@ -60,7 +60,7 @@ class DiffusionPolicy(
             "action": deque(maxlen=self.config.n_action_steps),
         }
         if len(self.expected_image_keys) > 0:
-            self._queues["observation.images"] = deque(maxlen=self.config.n_obs_steps)
+            self._queues["observation.envs"] = deque(maxlen=self.config.n_obs_steps)
         # if self.use_env_state:
         #     self._queues["observation.environment_state"] = deque(maxlen=self.config.n_obs_steps)
 
@@ -70,12 +70,43 @@ class DiffusionPolicy(
         # batch = self.normalize_inputs(batch)
         if len(self.expected_image_keys) > 0:
             batch = dict(batch)  # Copy the batch to avoid modifying the original
-            batch["observation.images"] = torch.stack([batch[k] for k in self.expected_image_keys], dim=-4)
+            batch["observation.env"] = torch.stack([batch[k] for k in self.expected_image_keys], dim=-4)
         # batch = self.normalize_targets(batch) 
 
         loss = self.diffusion.compute_loss(batch)  # TODO
         # Return the output dictionary
         return {"loss": loss}
+    
+    def predict(self, observation_env: Tensor, observation_state: Tensor) -> Tensor:
+        # 推理阶段用于生成动作序列
+        with torch.no_grad():
+            # 准备条件输入
+            batch_size = observation_state.shape[0]
+            n_obs_steps = observation_state.shape[1]
+
+            global_cond = self.diffusion._prepare_global_conditioning({
+                "observation.state": observation_state,
+                "observation.envs": observation_env
+            })
+
+            # 初始化噪声为随机值
+            trajectory = torch.randn((batch_size, self.config.horizon, self.config.output_shapes["action"][0]),
+                                     device=observation_state.device)
+
+            # 扩散反向过程，逐步去噪
+            for t in reversed(range(self.diffusion.noise_scheduler.config.num_train_timesteps)):
+                timestep = torch.full((batch_size,), t, device=observation_state.device, dtype=torch.long)
+                noise_pred = self.diffusion.unet(trajectory, timestep, global_cond)
+
+                # 使用调度器的 step 方法来减少噪声并更新样本
+                trajectory = self.diffusion.noise_scheduler.step(
+                    model_output=noise_pred,
+                    timestep=timestep,
+                    sample=trajectory
+                ).prev_sample
+
+            return trajectory
+
 
 
 class DiffusionModel(nn.Module):
@@ -84,9 +115,9 @@ class DiffusionModel(nn.Module):
         self.config = config
 
         # Build observation encoders (depending on which observations are provided).
-        # config.input_shapes = {'observation.image': [3, 96, 96], 'observation.state': [2]}
+        # config.input_shapes = {'observation.env': [3, 96, 96], 'observation.state': [2]}
         global_cond_dim = config.input_shapes["observation.state"][0] 
-        num_images = len([k for k in config.input_shapes if k.startswith("observation.image")])
+        num_images = len([k for k in config.input_shapes if k.startswith("observation.env")])
         self._use_images = False
         self._use_env_state = False
         if num_images > 0:
@@ -124,7 +155,7 @@ class DiffusionModel(nn.Module):
 
         if self._use_images:
             img_features = self.rgb_encoder(
-                einops.rearrange(batch["observation.images"], "b s n ... -> (b s n ) ...")
+                einops.rearrange(batch["observation.envs"], "b s n ... -> (b s n ) ...")
             )
 
             img_features = einops.rearrange(
@@ -147,7 +178,7 @@ class DiffusionModel(nn.Module):
 
             "observation.state": (B, n_obs_steps, state_dim)
 
-            "observation.images": (B, n_obs_steps, num_cameras, C, H, W)
+            "observation.envs": (B, n_obs_steps, num_cameras, C, H, W)
                 AND/OR
             "observation.environment_state": (B, environment_dim)
 
@@ -157,7 +188,7 @@ class DiffusionModel(nn.Module):
         """
         # 1. input validation
         # assert set(batch).issuperset({"observation.state", "action", "action_is_pad"})
-        # assert "observation.images" in batch or "observation.environment_state" in batch
+        # assert "observation.envs" in batch or "observation.environment_state" in batch
         n_obs_steps = batch["observation.state"].shape[1] # ？
         horizon = batch["action"].shape[1] 
         assert n_obs_steps == self.config.n_obs_steps
@@ -232,7 +263,7 @@ class DiffusionRgbEncoder(nn.Module):
             )
 
         # set up pooling and final layers
-        image_keys = [k for k in config.input_shapes if k.startswith("observation.image")]
+        image_keys = [k for k in config.input_shapes if k.startswith("observation.env")]
         image_key = image_keys[0]
         dummy_input_h_w = (
             config.crop_shape if config.crop_shape is not None else config.input_shapes[image_key][1:]
