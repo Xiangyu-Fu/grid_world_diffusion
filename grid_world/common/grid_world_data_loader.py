@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import pickle
 import numpy as np
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 class PathDataset(Dataset):
     def __init__(self, data_path, delta_timestamps, ):
@@ -10,6 +10,7 @@ class PathDataset(Dataset):
             self.paths = pickle.load(f)
         
         self.delta_timestamps = delta_timestamps
+        self.max_observation_length = len(delta_timestamps.get("observation.env", []))
         self.max_state_length = len(delta_timestamps.get("observation.state", []))
         self.max_action_length = len(delta_timestamps.get("action", []))
         
@@ -42,21 +43,22 @@ class PathDataset(Dataset):
         timestamps = path[:, 0]
         
         data = {}
-
         # data['observation.env'] - Create a 2D binary map
         grid_size = 100  # Assuming the world size is 100x100
-        env_map = np.zeros((grid_size, grid_size), dtype=np.float32)
+        env_map = np.zeros((3, grid_size, grid_size), dtype=np.float32)
         
-        for point in obstacle_points:
-            x, y = point
-            env_map[x, y] = 1.0
-        
-        start_position = path[0, 1:].astype(int)
-        goal_position = path[-1, 1:].astype(int)
-        env_map[start_position[0], start_position[1]] = 0.5  # Start position
-        env_map[goal_position[0], goal_position[1]] = 0.75  # Goal position
-        
-        data['observation.env'] = env_map  # (grid_size, grid_size)
+
+        for i in range(3):        
+            for point in obstacle_points:
+                x, y = point
+                env_map[i, x, y] = 1.0
+            
+            start_position = path[0, 1:].astype(int)
+            goal_position = path[-1, 1:].astype(int)
+            env_map[i, start_position[0], start_position[1]] = 0.5  # Start position
+            env_map[i, goal_position[0], goal_position[1]] = 0.75  # Goal position
+            
+        data['observation.env'] = env_map  # (channel, grid_size, grid_size)
 
         # data['observation.state']
         state_times = np.array(self.delta_timestamps.get("observation.state", []))
@@ -87,9 +89,64 @@ class PathDataset(Dataset):
         else:
             action = action[:self.max_action_length]
         data['action'] = action
-        
-        data['observation.env'] = torch.tensor(data['observation.env'], dtype=torch.float32).unsqueeze(0)  # Add channel dimension
+
+        data['observation.env'] = torch.tensor(data['observation.env'], dtype=torch.float32).unsqueeze(0).repeat(self.max_observation_length, 1, 1, 1)  # Add channel dimension
         data['observation.state'] = torch.tensor(data['observation.state'], dtype=torch.float32)
         data['action'] = torch.tensor(data['action'], dtype=torch.float32)
         
         return data
+    
+    def sample_env(self):
+        """
+        Returns:
+            observation.env: 2D binary map with obstacles, start, and goal
+            observation.state: [x, y] at a random time
+        """
+        # 随机选择一个路径索引
+        path_index = np.random.randint(0, len(self.paths))
+        path_data = self.paths[path_index]
+        path = np.array(path_data['path'])
+        obstacle_points = np.array(path_data['obstacle'])
+        timestamps = path[:, 0]
+        
+        # 随机选择一个时间点
+        random_time = np.random.uniform(timestamps[0], timestamps[-1])
+        
+        data = {}
+
+        # data['observation.env'] - Create a 2D binary map
+        grid_size = 100  # 假设世界的大小为100x100
+        env_map = np.zeros((3, grid_size, grid_size), dtype=np.float32)
+        
+        for i in range(3):        
+            for point in obstacle_points:
+                x, y = point
+                env_map[i, x, y] = 1.0
+            
+            start_position = path[0, 1:].astype(int)
+            goal_position = path[-1, 1:].astype(int)
+            env_map[i, start_position[0], start_position[1]] = 0.5  # Start position
+            env_map[i, goal_position[0], goal_position[1]] = 0.75  # Goal position
+            
+        data['observation.env'] = env_map  # (channel, grid_size, grid_size)
+
+        # # plot the environment
+        # plt.figure()
+        # plt.imshow(np.transpose(env_map, (1, 2, 0)))  
+        # plt.title('Environment')
+        # plt.show()
+
+
+        # data['observation.state'] - Get state at random time
+        state_index = int((random_time - timestamps[0]) / 0.1)
+        state_index = min(max(state_index, 0), len(path) - 1)  # 保证索引在合法范围内
+        observation_state = path[state_index, 1:]  # [x, y] 位置
+
+        data['observation.state'] = observation_state
+        
+        # 将 numpy 转换为 tensor
+        data['observation.env'] = torch.tensor(data['observation.env'], dtype=torch.float32).unsqueeze(0)  # Add channel dimension
+        data['observation.state'] = torch.tensor(data['observation.state'], dtype=torch.float32).unsqueeze(0)
+
+        return data
+

@@ -8,11 +8,24 @@ def evaluate_diffusion_policy(model_path, dataset_path, num_episodes=5):
     policy = DiffusionPolicy()
     policy.load_state_dict(torch.load(model_path))
     policy.eval()
+    device = torch.device("cpu")
+
+    # load the dataset
+    delta_timestamps = {
+        "observation.env": [-0.1, 0.0],
+        "observation.state": [-0.1, 0.0],
+        "action": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4,],
+    }
+    dataset = PathDataset('grid_world/dataset/grid_world_dataset.pkl', delta_timestamps=delta_timestamps)
+    observation = dataset.sample_env()
+
+    with torch.inference_mode():
+        action = policy.select_action(observation)
 
     # Load dataset
     delta_timestamps = {
         "observation.state": [-0.1, 0.0],
-        "action": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5],
+        "action": [-0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4,],
     }
     dataset = PathDataset(dataset_path, delta_timestamps=delta_timestamps)
     device = torch.device("cpu")

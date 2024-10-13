@@ -9,7 +9,7 @@ class DiffusionConfig:
 
     input_shapes: dict[str, list[int]] = field(
         default_factory=lambda: {
-            "observation.image": [3, 96, 96],
+            "observation.env": [3, 100, 100],
             "observation.state": [2],
         }
     )
@@ -22,7 +22,7 @@ class DiffusionConfig:
     # Normalization / Unnormalization
     input_normalization_modes: dict[str, str] = field(
         default_factory=lambda: {
-            "observation.image": "mean_std",
+            "observation.env": "mean_std",
             "observation.state": "min_max",
         }
     )
@@ -31,7 +31,7 @@ class DiffusionConfig:
     # Architecture / modeling.
     # Vision backbone.
     vision_backbone: str = "resnet18"
-    crop_shape: tuple[int, int] | None = (84, 84)
+    crop_shape: tuple[int, int] | None = (100, 100)
     crop_is_random: bool = True
     pretrained_backbone_weights: str | None = None
     use_group_norm: bool = True
@@ -69,7 +69,7 @@ class DiffusionConfig:
                 f"`vision_backbone` must be one of the ResNet variants. Got {self.vision_backbone}."
             )
 
-        image_keys = {k for k in self.input_shapes if k.startswith("observation.image")}
+        image_keys = {k for k in self.input_shapes if k.startswith("observation.env")}
 
         if len(image_keys) == 0 and "observation.environment_state" not in self.input_shapes:
             raise ValueError("You must provide at least one image or the environment state among the inputs.")

@@ -151,7 +151,7 @@ class GridWorldPathGenerator:
                 pbar.update(1)
 
         # Save data as .pkl file
-        with open('grid_world/dataset/grid_world_dataset.pkl', 'wb') as f:
+        with open('grid_world/dataset/grid_world_dataset_test.pkl', 'wb') as f:
             pickle.dump(self.paths_data, f)
 
         print("\nData has been saved as grid_world_dataset.pkl")
@@ -183,6 +183,6 @@ class GridWorldPathGenerator:
 
 # Example usage
 if __name__ == "__main__":
-    generator = GridWorldPathGenerator(world_size=100, num_paths=500, min_distance=80)
+    generator = GridWorldPathGenerator(world_size=100, num_paths=10, min_distance=80)
     generator.generate_paths()
     generator.visualize_paths(num_visualize=5)
