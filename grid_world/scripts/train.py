@@ -74,7 +74,7 @@ def train_grid_world():
     policy.to(device)
     policy.train()
 
-    training_steps = 1000
+    training_steps = 5000
 
     optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
 

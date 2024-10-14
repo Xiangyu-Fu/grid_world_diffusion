@@ -191,6 +191,8 @@ class DiffusionModel(nn.Module):
         else:
             self.num_inference_steps = config.num_inference_steps
 
+        pass
+
     def _prepare_global_conditioning(self, batch: dict[str, Tensor]) -> Tensor:
         '''全局条件特征的编码, 从不同来源的特征（如状态、图像、环境状态）中提取有用信息，
         并将这些信息整合到一个统一的向量中。
