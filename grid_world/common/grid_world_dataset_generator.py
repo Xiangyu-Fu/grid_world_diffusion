@@ -46,7 +46,7 @@ class GridWorldPathGenerator:
             # Check if random walk is needed
             if steps_since_last_random_walk >= next_random_walk_interval:
                 # Random walk
-                random_walk_steps = random.randint(1, 10)
+                random_walk_steps = random.randint(1, 1)
                 for _ in range(random_walk_steps):
                     neighbors = [(current_position[0] + dx, current_position[1] + dy)
                                  for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]]
@@ -183,6 +183,6 @@ class GridWorldPathGenerator:
 
 # Example usage
 if __name__ == "__main__":
-    generator = GridWorldPathGenerator(world_size=100, num_paths=10, min_distance=80)
+    generator = GridWorldPathGenerator(world_size=100, num_paths=500, min_distance=80)
     generator.generate_paths()
     generator.visualize_paths(num_visualize=5)

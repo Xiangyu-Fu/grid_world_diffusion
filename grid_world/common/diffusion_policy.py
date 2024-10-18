@@ -21,6 +21,8 @@ from collections import deque
 from grid_world.conf.configuration_diffusion import DiffusionConfig
 from grid_world.utils.utils import _make_noise_scheduler, _replace_submodules
 
+from grid_world.common.normalize import Normalize, Unnormalize
+
 def populate_queues(queues, batch):
     for key in batch:
         # Ignore keys not in the queues already (leaving the responsibility to the caller to make sure the
@@ -67,16 +69,16 @@ class DiffusionPolicy(
             config = DiffusionConfig()  # Here we use the default config
         self.config = config
 
-        # # TODO: replace with my own implementation
-        # self.normalize_inputs = Normalize(
-        #     config.input_shapes, config.input_normalization_modes, dataset_stats
-        # )
-        # self.normalize_targets = Normalize(
-        #     config.output_shapes, config.output_normalization_modes, dataset_stats
-        # )
-        # self.unnormalize_outputs = Unnormalize(
-        #     config.output_shapes, config.output_normalization_modes, dataset_stats
-        # )
+        # TODO: use own implementation
+        self.normalize_inputs = Normalize(
+            config.input_shapes, config.input_normalization_modes, dataset_stats
+        )
+        self.normalize_targets = Normalize(
+            config.output_shapes, config.output_normalization_modes, dataset_stats
+        )
+        self.unnormalize_outputs = Unnormalize(
+            config.output_shapes, config.output_normalization_modes, dataset_stats
+        )
 
         self._queues = None
 
@@ -100,11 +102,11 @@ class DiffusionPolicy(
     def forward(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
         # Do something with the input batch
         # input shape: (36864, 96) = (64*2*3*96, 96)
-        # batch = self.normalize_inputs(batch)
+        batch = self.normalize_inputs(batch)
         if len(self.expected_image_keys) > 0:
             batch = dict(batch)  # Copy the batch to avoid modifying the original
             batch["observation.env"] = torch.stack([batch[k] for k in self.expected_image_keys], dim=-4)
-        # batch = self.normalize_targets(batch) 
+        batch = self.normalize_targets(batch) 
 
         loss = self.diffusion.compute_loss(batch)  # TODO
         # Return the output dictionary
@@ -132,24 +134,30 @@ class DiffusionPolicy(
         "horizon" may not the best name to describe what the variable actually means, because this period is
         actually measured from the first observation which (if `n_obs_steps` > 1) happened in the past.
         """
-        # batch = self.normalize_inputs(batch)
+        batch = self.normalize_inputs(batch)
+
+        # 1. 处理图像数据，将其整合到一个统一的向量中。
         if len(self.expected_image_keys) > 0:
             batch = dict(batch)  # shallow copy so that adding a key doesn't modify the original
             batch["observation.env"] = torch.stack([batch[k] for k in self.expected_image_keys], dim=-4)
+
+        # 2. 将当前观测数据添加到队列中            
         # Note: It's important that this happens after stacking the images into a single key.
         self._queues = populate_queues(self._queues, batch)
 
+        # 3. 生成动作
         if len(self._queues["action"]) == 0:
-            # stack n latest observations from the queue
+            # 将缓存的最新观测数据堆叠成一个批次，传递给模型
             batch = {k: torch.stack(list(self._queues[k]), dim=1) for k in batch if k in self._queues}
-            actions = self.diffusion.generate_actions(batch)
+            actions = self.diffusion.generate_actions(batch)  # --> torch.Size([2, 8, 2])
 
+            # 动作反归一化
             # TODO(rcadene): make above methods return output dictionary?
-            # actions = self.unnormalize_outputs({"action": actions})["action"]
+            actions = self.unnormalize_outputs({"action": actions})["action"]
 
-            self._queues["action"].extend(actions.transpose(0, 1))
+            self._queues["action"].extend(actions.transpose(0, 1)) # 将样本和时间步的位置调换，以便每次从队列中获取一个动作
 
-        action = self._queues["action"].popleft()
+        action = self._queues["action"].popleft() # 从队列中获取一个动作
         return action
 
 
@@ -218,12 +226,18 @@ class DiffusionModel(nn.Module):
         return torch.cat(global_cond_feats, dim=-1).flatten(start_dim=1)
 
     def conditional_sample(
-        self, batch_size: int, global_cond: Tensor | None = None, generator: torch.Generator | None = None
+        self, 
+        batch_size: int, 
+        global_cond: Tensor | None = None, 
+        generator: torch.Generator | None = None
     ) -> Tensor:
+        """
+        该方法用于从模型中采样一系列动作（或其他数据），这涉及一个扩散过程，逐步反向去噪，以从噪声生成样本。
+        """
         device = get_device_from_parameters(self)
         dtype = get_dtype_from_parameters(self)
 
-        # Sample prior.
+        # 1. 初始化样本. --> torch.Size([2, 16, 2])
         sample = torch.randn(
             size=(batch_size, self.config.horizon, self.config.output_shapes["action"][0]),
             dtype=dtype,
@@ -231,10 +245,11 @@ class DiffusionModel(nn.Module):
             generator=generator,
         )
 
-
+        # 2. 设置时间步长， 这决定了扩散过程反向去噪的迭代次数。100steps
         self.noise_scheduler.set_timesteps(self.num_inference_steps)
 
-        for t in self.noise_scheduler.timesteps:
+        # 3. 逐步反向去噪
+        for t in self.noise_scheduler.timesteps:  
             # Predict model output.
             model_output = self.unet(
                 sample,
@@ -244,7 +259,7 @@ class DiffusionModel(nn.Module):
             # Compute previous image: x_t -> x_t-1
             sample = self.noise_scheduler.step(model_output, t, sample, generator=generator).prev_sample
 
-        return sample
+        return sample # --> torch.Size([2, 16, 2])
 
     def generate_actions(self, batch: dict[str, Tensor]) -> Tensor:
         """
