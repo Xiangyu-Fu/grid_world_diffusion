@@ -1,4 +1,4 @@
-# Grid World Deffusion 
+# Grid World Diffusion 
 ## Introduction
 
 ```cmd
